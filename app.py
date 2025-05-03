@@ -3,6 +3,7 @@ import bunq_client
 import agents # Import agents if you need analysis results
 import os
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load environment variables (needed for bunq_client initialization)
 load_dotenv()
@@ -103,13 +104,25 @@ def get_transactions():
                     analysis_details = analysis_cache[tx_id]['analysis_details']
             # --- End Analysis/Cache Logic ---
 
+            created_str = getattr(tx, 'created', None)
+            formatted_date = 'N/A'
+            if created_str:
+                try:
+                    # Parse the ISO 8601 format string (adjust if format differs)
+                    # Example: 2025-05-03T02:05:21.684713Z or similar
+                    dt_obj = datetime.fromisoformat(created_str.replace('Z', '+00:00')) 
+                    formatted_date = dt_obj.strftime('%Y-%m-%d %l:%M %p') # New Format: YYYY-MM-DD H:MM AM/PM
+                except ValueError:
+                    print(f"Warning: Could not parse date string '{created_str}' for Tx ID {tx_id}")
+                    # Keep formatted_date as 'N/A' or handle differently
+
             transactions_display.append({
                 'id': tx_id,
                 'description': getattr(tx, 'description', 'N/A'),
                 'amount': getattr(getattr(tx, 'amount', None), 'value', 'N/A'),
                 'currency': getattr(getattr(tx, 'amount', None), 'currency', 'N/A'),
                 'counterparty': getattr(getattr(tx, 'counterparty_alias', None), 'display_name', 'N/A'),
-                'created': getattr(tx, 'created', 'N/A'),
+                'created': formatted_date,
                 'type': getattr(tx, 'type', 'N/A'),
                 'sub_type': getattr(tx, 'sub_type', 'N/A'),
                 'classification': classification,
