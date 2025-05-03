@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }} - bunq AI Agent</title>
+    <!-- Add basic styling or link to a CSS file here -->
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        nav a { margin-right: 1em; }
+        table { border-collapse: collapse; width: 100%; margin-top: 1em; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .error { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="{{ url_for('index') }}">Home</a>
+        <a href="{{ url_for('get_transactions') }}">Transactions</a>
+        <!-- Add other navigation links as needed -->
+    </nav>
+    <hr>
+    {% block content %}{% endblock %}
+</body>
+</html>
