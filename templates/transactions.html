@@ -1,50 +1,224 @@
-{% extends 'base.html' %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }} - Troy </title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        bunq: {
+                            green: '#1BB55C',
+                            darkgreen: '#149E4F',
+                            lightgray: '#F5F7FA',
+                            gray: '#E0E4E9',
+                            darkgray: '#8C9AAD',
+                            dark: '#2D3748'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #F5F7FA;
+        }
+        .nav-link {
+            position: relative;
+        }
+        .nav-link.active {
+            color: #1BB55C;
+            font-weight: 500;
+        }
+        .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: #1BB55C;
+        }
+        .btn-bunq {
+            transition: all 0.2s ease;
+        }
+        .btn-bunq:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px rgba(27, 181, 92, 0.1);
+        }
+        .table-container {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+        .analysis-notify {
+            background-color: rgba(255, 244, 229, 0.7);
+            border-left: 3px solid #F59E0B;
+        }
+        .analysis-block-suggestion {
+            background-color: rgba(254, 226, 226, 0.7);
+            border-left: 3px solid #EF4444;
+        }
+        .table-responsive {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+    </style>
+</head>
+<body class="font-sans text-bunq-dark min-h-screen">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Header -->
+        <header class="py-6">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <div class="w-10 h-10 bg-bunq-green rounded-lg flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                    <span class="text-xl font-semibold">bunq AI Agent</span>
+                </div>
+            </div>
+        </header>
 
-{% block content %}
-    <h1>Recent Transactions & Analysis</h1>
-    {% if transactions %}
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th>Amount</th>
-                    <th>Currency</th>
-                    <th>Counterparty</th>
-                    <th>Type</th>
-                    <th>Sub Type</th>
-                    <th>Classification</th> <!-- New Column -->
-                    <th>Analysis/Notification</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for tx in transactions %}
-                    <!-- Optionally add styling based on analysis_action -->
-                    <tr class="{{ 'analysis-notify' if tx.analysis_action == 'notify' else '' }} {{ 'analysis-block-suggestion' if tx.analysis_action == 'suggest_block' else '' }}">
-                        <td>{{ tx.id }}</td>
-                        <td>{{ tx.created }}</td>
-                        <td>{{ tx.description }}</td>
-                        <td>{{ tx.amount }}</td>
-                        <td>{{ tx.currency }}</td>
-                        <td>{{ tx.counterparty }}</td>
-                        <td>{{ tx.type }}</td>
-                        <td>{{ tx.sub_type }}</td>
-                        <td>{{ tx.classification }}</td> <!-- Display Classification -->
-                        <td>
-                            {% if tx.analysis_text %}
-                                {{ tx.analysis_text }}
-                            {% elif tx.analysis_action == 'error' %}
-                                <span class="error">Analysis Error</span>
-                            {% else %}
-                                <!-- No analysis message or action was 'none' -->
-                            {% endif %}
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p>No transactions found or unable to load.</p>
-    {% endif %}
-{% endblock %}
+        <!-- Navigation -->
+        <nav class="bg-white rounded-lg shadow-sm mb-8">
+            <div class="px-6 py-4">
+                <div class="flex space-x-8">
+                    <a href="{{ url_for('index') }}" class="nav-link px-1 py-2 text-gray-600 hover:text-bunq-green transition-colors duration-200 {% if request.path == url_for('index') %}active{% endif %}">
+                        Home
+                    </a>
+                    <a href="{{ url_for('get_transactions') }}" class="nav-link px-1 py-2 text-gray-600 hover:text-bunq-green transition-colors duration-200 {% if request.path == url_for('get_transactions') %}active{% endif %}">
+                        Transactions
+                    </a>
+                    <!-- Add other navigation links as needed -->
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="bg-white rounded-lg shadow-sm p-6 mb-8">
+            <div class="flex justify-between items-center mb-6">
+                <h1 class="text-2xl font-bold text-bunq-dark">Recent Transactions & Analysis</h1>
+                <div class="flex items-center space-x-2">
+                    <div class="h-3 w-3 rounded-full bg-yellow-500"></div>
+                    <span class="text-sm text-gray-600">Notification</span>
+                    <div class="h-3 w-3 rounded-full bg-red-500 ml-4"></div>
+                    <span class="text-sm text-gray-600">Block Suggestion</span>
+                </div>
+            </div>
+            
+            {% if transactions %}
+                <div class="table-responsive">
+                    <table class="min-w-full divide-y divide-bunq-gray">
+                        <thead>
+                            <tr>
+                                <th class="px-4 py-3 bg-bunq-lightgray text-left text-xs font-medium text-bunq-darkgray uppercase tracking-wider">ID</th>
+                                <th class="px-4 py-3 bg-bunq-lightgray text-left text-xs font-medium text-bunq-darkgray uppercase tracking-wider">Date</th>
+                                <th class="px-4 py-3 bg-bunq-lightgray text-left text-xs font-medium text-bunq-darkgray uppercase tracking-wider">Description</th>
+                                <th class="px-4 py-3 bg-bunq-lightgray text-left text-xs font-medium text-bunq-darkgray uppercase tracking-wider">Amount</th>
+                                <th class="px-4 py-3 bg-bunq-lightgray text-left text-xs font-medium text-bunq-darkgray uppercase tracking-wider">Currency</th>
+                                <th class="px-4 py-3 bg-bunq-lightgray text-left text-xs font-medium text-bunq-darkgray uppercase tracking-wider">Counterparty</th>
+                                <th class="px-4 py-3 bg-bunq-lightgray text-left text-xs font-medium text-bunq-darkgray uppercase tracking-wider">Sub Type</th>
+                                <th class="px-4 py-3 bg-bunq-lightgray text-left text-xs font-medium text-bunq-darkgray uppercase tracking-wider">Classification</th>
+                                <th class="px-4 py-3 bg-bunq-lightgray text-left text-xs font-medium text-bunq-darkgray uppercase tracking-wider min-w-[250px]">Analysis/Notification</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-bunq-gray">
+                            {% for tx in transactions %}
+                                <tr class="{{ 'analysis-notify' if tx.analysis_action == 'notify' else '' }} {{ 'analysis-block-suggestion' if tx.analysis_action == 'suggest_block' else '' }} hover:bg-bunq-lightgray transition-colors duration-150">
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm">{{ tx.id }}</td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm">{{ tx.created }}</td>
+                                    <td class="px-4 py-3 text-sm">{{ tx.description }}</td>
+                                    
+                                    {% set amount_is_negative = false %}
+                                    {% if tx.amount is number %}
+                                        {% if tx.amount < 0 %}
+                                            {% set amount_is_negative = true %}
+                                        {% endif %}
+                                    {% endif %}
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm font-medium {{ 'text-red-600' if amount_is_negative else 'text-bunq-green' }}">
+                                        {{ tx.amount if tx.amount is number else 'N/A' }}
+                                    </td>
+
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm">{{ tx.currency }}</td>
+                                    <td class="px-4 py-3 text-sm">{{ tx.counterparty }}</td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm">{{ tx.sub_type }}</td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm">
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                                            {{ tx.classification }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm min-w-[250px]">
+                                        {% if tx.analysis_text %}
+                                            <div class="flex items-start">
+                                                {% if tx.analysis_action == 'notify' %}
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-500 mr-1 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2h-1V9z" clip-rule="evenodd" />
+                                                    </svg>
+                                                {% elif tx.analysis_action == 'suggest_block' %}
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-500 mr-1 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                                    </svg>
+                                                {% endif %}
+                                                <span>{{ tx.analysis_text }}</span>
+                                            </div>
+                                        {% elif tx.analysis_action == 'error' %}
+                                            <span class="text-red-600 font-medium flex items-center">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                                                </svg>
+                                                Analysis Error
+                                            </span>
+                                        {% else %}
+                                            <!-- No analysis message or action was 'none' -->
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="flex flex-col items-center justify-center py-12 text-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-bunq-darkgray mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p class="text-lg text-bunq-darkgray">No transactions found or unable to load.</p>
+                    <button class="mt-4 px-4 py-2 bg-bunq-green text-white rounded-md hover:bg-bunq-darkgreen transition-colors duration-200">
+                        Refresh Transactions
+                    </button>
+                </div>
+            {% endif %}
+        </main>
+
+        <!-- Footer -->
+        <footer class="py-6">
+            <div class="text-center text-sm text-bunq-darkgray">
+                <p>&copy; 2023 bunq AI Agent. All rights reserved.</p>
+            </div>
+        </footer>
+    </div>
+
+    <!-- JavaScript for active navigation highlighting -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const currentPath = window.location.pathname;
+            const navLinks = document.querySelectorAll('.nav-link');
+            
+            navLinks.forEach(link => {
+                const linkPath = link.getAttribute('href');
+                if (currentPath === linkPath) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'939ec512d5869725',t:'MTc0NjI2NDk0Mi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
