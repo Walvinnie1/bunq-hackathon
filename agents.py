@@ -1,5 +1,6 @@
 # Implementation of different AI agents 
 import json
+import re # Import the regex module
 import datetime # Needed for potential date manipulation in prompts if required
 from llm_client import get_llm_response
 # We assume transaction data is fetched elsewhere and passed to these functions
@@ -41,6 +42,41 @@ def simplify_transaction_for_prompt(tx):
         "counterparty_iban": getattr(counterparty_alias_obj, 'iban', 'N/A') if counterparty_alias_obj else 'N/A', # Add IBAN if useful
         # Add other fields as needed, e.g., 'merchant_country'
      }
+
+# +++ Add Helper Function to Extract JSON +++
+def extract_json_from_response(response_text):
+    """Attempts to extract a JSON object from the LLM response text."""
+    if not response_text:
+        return None
+
+    # Try finding JSON within ```json ... ``` markdown
+    match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+    if match:
+        json_str = match.group(1)
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON found within markdown: {e}")
+            # Fall through to try finding JSON without markdown
+
+    # If not found in markdown or parsing failed, try finding the first '{' and last '}'
+    try:
+        start_index = response_text.find('{')
+        end_index = response_text.rfind('}')
+        if start_index != -1 and end_index != -1 and end_index > start_index:
+            json_str = response_text[start_index : end_index + 1]
+            return json.loads(json_str)
+        else:
+            print("Could not find valid JSON object markers '{' and '}'.")
+            return None
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON found between {{ and }}: {e}")
+        return None
+    except Exception as e:
+        print(f"Unexpected error during JSON extraction: {e}")
+        return None
+# +++ End Helper Function +++
+
 
 def analyze_subscriptions(transactions):
     """Analyzes a list of transactions to identify potential subscriptions using an LLM.
@@ -103,10 +139,14 @@ def analyze_subscriptions(transactions):
         return "error", {"message": "Failed to get LLM subscription analysis."}
 
     try:
-        # Clean the response text in case the LLM adds markdown backticks
-        cleaned_response_text = response_text.strip().strip("`json\n").strip("\n```")
-        analysis = json.loads(cleaned_response_text)
-        
+        # Use the new extraction function
+        analysis = extract_json_from_response(response_text)
+
+        if analysis is None:
+             print("Failed to extract valid JSON from LLM response for subscriptions.")
+             print(f"Raw LLM Response:\n{response_text}")
+             return "error", {"message": "Failed to parse LLM subscription analysis."}
+
         # Basic validation of parsed structure
         if not all(k in analysis for k in ["potential_subscriptions", "unusual_subscriptions", "notification_text"]):
              raise ValueError("LLM response missing required keys.")
@@ -133,8 +173,6 @@ def analyze_purchase(transaction):
     print(f"\n--- Starting Purchase Analysis for Transaction ID: {getattr(transaction, 'id_', 'N/A')} ---")
     
     # Serialize the single transaction
-    # simplified_tx = serialize_bunq_objects(transaction)
-    # More controlled serialization:
     simplified_tx = {
         "id": getattr(transaction, 'id_', None),
         "description": getattr(transaction, 'description', 'N/A'),
@@ -145,8 +183,6 @@ def analyze_purchase(transaction):
         "sub_type": getattr(transaction, 'sub_type', 'N/A'),
         "counterparty_alias": getattr(transaction.counterparty_alias, 'display_name', 'N/A'),
         "merchant_country": getattr(transaction.counterparty_alias, 'country', 'N/A'), # Example: if available
-         # Add other potentially relevant fields if available in your Payment object structure
-         # e.g., merchant category code (MCC) if accessible
     }
     transaction_str = json.dumps(simplified_tx, indent=2)
 
@@ -180,9 +216,13 @@ def analyze_purchase(transaction):
         return "error", {"message": "Failed to get LLM purchase analysis.", "transaction_id": simplified_tx.get('id')}
 
     try:
-        # Clean the response text
-        cleaned_response_text = response_text.strip().strip("`json\n").strip("\n```")
-        analysis = json.loads(cleaned_response_text)
+        # Use the new extraction function
+        analysis = extract_json_from_response(response_text)
+
+        if analysis is None:
+             print("Failed to extract valid JSON from LLM response for purchase analysis.")
+             print(f"Raw LLM Response:\n{response_text}")
+             return "error", {"message": "Failed to parse LLM purchase analysis.", "transaction_id": simplified_tx.get('id')}
 
         # Validate response structure
         if not all(k in analysis for k in ["suspicious", "reason", "suggest_block", "notification_text"]):
@@ -194,7 +234,6 @@ def analyze_purchase(transaction):
         tx_id = simplified_tx.get('id')
 
         if analysis.get("suggest_block") == "Yes":
-            # CRITICAL: Do NOT automatically block. Log suggestion.
             print(f"LLM suggests blocking transaction ID: {tx_id}")
             action = "suggest_block"
             details = {"text": analysis.get("notification_text", "Suspicious transaction requires review."), "reason": analysis.get("reason"), "transaction_id": tx_id, "analysis": analysis}
@@ -202,7 +241,7 @@ def analyze_purchase(transaction):
             action = "notify"
             details = {"text": analysis.get("notification_text", "A transaction might need your attention."), "reason": analysis.get("reason"), "transaction_id": tx_id, "analysis": analysis}
         else:
-            action = "none" # Transaction deemed not suspicious
+            action = "none"
             details = {"transaction_id": tx_id}
         return action, details
 
@@ -215,11 +254,6 @@ def analyze_purchase(transaction):
 def generate_saving_recommendations(transactions):
      """(Placeholder) Analyzes transactions to generate saving recommendations."""
      print("\n--- Generating Saving Recommendations (Placeholder) ---")
-     # TODO: Implement Agent 4 logic
-     # 1. Process transactions (maybe categorize, summarize spending)
-     # 2. Create a suitable prompt for the LLM
-     # 3. Call get_llm_response
-     # 4. Parse response and format action/details
      return "none", {"message": "Savings recommendation agent not implemented yet."} 
 
 # --- Agent 0: Transaction Classifier ---
@@ -245,22 +279,24 @@ You are an AI assistant specializing in classifying bank transactions. Your task
 ```json
 {transaction_json}
 ```
+**Important Note:** In the transaction details, a negative `amount` value indicates money paid out by the user, while a positive `amount` value indicates money received by the user.
 
 Instructions:
 
-Analyze the provided transaction details, paying close attention to the merchant name/description, transaction type code (if available), and amount consistency (though you only have one transaction here, common subscription names are key).
+Analyze the provided transaction details, paying close attention to the merchant name/description, transaction type code (if available), and amount consistency (though you only have one transaction here, common subscription names are key). Consider the sign of the amount (payment vs. received).
 
 Determine if the transaction is most likely:
 
-*   **Subscription:** Recurring payment for a service (e.g., Netflix, Spotify, Gym Membership, Software). Often identifiable by merchant name. Direct debits can be subscriptions but aren't always.
-*   **Online Purchase:** A one-off or infrequent purchase made via the internet (e.g., Amazon, food delivery app, online store, iDEAL payment). May have transaction types like 'IDEAL' or come from known e-commerce merchants.
-*   **Offline Purchase:** A purchase made physically using a card or phone (e.g., Point-of-Sale terminal, supermarket, restaurant). Often associated with 'MASTERCARD', 'MAESTRO', 'VISA' types at physical vendors, but can overlap with online. Use merchant description context if available.
+*   **Subscription:** Recurring payment (negative amount) for a service (e.g., Netflix, Spotify, Gym Membership, Software). Often identifiable by merchant name. Direct debits can be subscriptions but aren't always.
+*   **Online Purchase:** A one-off or infrequent payment (negative amount) made via the internet (e.g., Amazon, food delivery app, online store, iDEAL payment). May have transaction types like 'IDEAL' or come from known e-commerce merchants.
+*   **Offline Purchase:** A payment (negative amount) made physically using a card or phone (e.g., Point-of-Sale terminal, supermarket, restaurant). Often associated with 'MASTERCARD', 'MAESTRO', 'VISA' types at physical vendors, but can overlap with online. Use merchant description context if available.
+*   **(Consider if needed: Income/Received Payment):** If the amount is positive, classify appropriately (e.g., "Salary", "Refund", "Received Transfer"). For now, focus on the payment types.
 
 Provide your classification in JSON format.
 
 Output Format (JSON):
 {{
-  "classified_type": "Subscription | Online Purchase | Offline Purchase"
+  "classified_type": "Subscription | Online Purchase | Offline Purchase" # Add other types like "Income" if needed
 }}
     """
 
@@ -271,18 +307,25 @@ Output Format (JSON):
         return None
 
     try:
-        cleaned_response_text = response_text.strip().strip("`json\n").strip("\n```")
-        analysis = json.loads(cleaned_response_text)
+        # Use the new extraction function
+        analysis = extract_json_from_response(response_text)
+
+        if analysis is None:
+             print("Failed to extract valid JSON from LLM response for classification.")
+             print(f"Raw LLM Response:\n{response_text}")
+             return None # Indicate failure to extract/parse
 
         classified_type = analysis.get("classified_type")
+        # Check if the returned type is one of the EXACT expected strings
         if classified_type in ["Subscription", "Online Purchase", "Offline Purchase"]:
             print(f"Transaction classified as: {classified_type}")
             return classified_type
         else:
-            print(f"Warning: LLM returned unexpected classification: {classified_type}. Treating as Unknown.")
+            # If the LLM returns something else (or nothing), it becomes "Unknown"
+            print(f"Warning: LLM returned unexpected classification in JSON: {classified_type}. Treating as Unknown.")
             return "Unknown"
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        print(f"Error parsing LLM response for classification: {e}")
+    except Exception as e: # Catch any unexpected error during processing
+        print(f"Unexpected error processing LLM classification response: {e}")
         print(f"Raw LLM Response:\n{response_text}")
         return None
 
@@ -306,7 +349,6 @@ def analyze_subscription_transaction(current_transaction, historical_transaction
 
     # Prepare historical data (limit size for prompt)
     simplified_history = [simplify_transaction_for_prompt(tx) for tx in historical_transactions if getattr(tx, 'id_', None) != current_tx_id]
-    # Limit history size further if needed based on token limits
     MAX_HISTORY_ITEMS = 50
     historical_transactions_json = json.dumps(simplified_history[:MAX_HISTORY_ITEMS], indent=2)
 
@@ -323,12 +365,13 @@ You are an AI financial assistant specializing in subscription management. You h
 ```json
 {historical_transactions_json}
 ```
+**Important Note:** In the transaction details, a negative `amount` value indicates money paid out by the user, while a positive `amount` value indicates money received by the user. Subscriptions are typically payments (negative amounts).
 
 Instructions:
 
 1.  **Identify Service:** Determine the specific service name for the Current Subscription Transaction (e.g., "Spotify", "Netflix", "Basic-Fit Gym").
 2.  **Identify Category:** Determine the category of this service (e.g., "Music Streaming", "Video Streaming", "Fitness", "Software").
-3.  **Scan History for Similar Services:** Analyze the Recent Transaction History to find other recurring payments within the **same category**. Look for different merchants offering comparable services (e.g., if the current is Spotify, look for Apple Music, YouTube Music, Deezer). List their names/descriptions.
+3.  **Scan History for Similar Services:** Analyze the Recent Transaction History to find other recurring payments (negative amounts) within the **same category**. Look for different merchants offering comparable services (e.g., if the current is Spotify, look for Apple Music, YouTube Music, Deezer). List their names/descriptions.
 4.  **Generate Suggestion:**
     *   If one or more similar/redundant subscriptions are found in the history: Generate a `notification_text` suggesting the user might have overlapping services and could consider cancelling one. Mention the current service and the similar ones found. Set `suggestion_type` to "Consider Cancellation".
     *   If no similar subscriptions are found: Generate a simple `notification_text` acknowledging the new subscription payment. Set `suggestion_type` to "Acknowledgment".
@@ -352,22 +395,29 @@ Output Format (JSON):
         return "error", {"message": "Failed to get LLM subscription analysis.", "transaction_id": current_tx_id}
 
     try:
-        cleaned_response_text = response_text.strip().strip("`json\n").strip("\n```")
-        analysis = json.loads(cleaned_response_text)
+        # Use the new extraction function
+        analysis = extract_json_from_response(response_text)
+
+        if analysis is None:
+             print(f"Failed to extract valid JSON from LLM response for subscription {current_tx_id}.")
+             print(f"Raw LLM Response:\n{response_text}")
+             return "error", {"message": "Failed to parse LLM subscription analysis.", "transaction_id": current_tx_id}
 
         # Basic validation
         required_keys = ["identified_service", "service_category", "similar_services_found", "suggestion_type", "notification_text"]
         if not all(k in analysis for k in required_keys):
-             raise ValueError("LLM response missing required keys for subscription analysis.")
+             print(f"LLM JSON response missing required keys for subscription {current_tx_id}.")
+             print(f"Invalid analysis object: {analysis}")
+             return "error", {"message": "LLM response missing required keys for subscription analysis.", "transaction_id": current_tx_id}
 
         action = "notify" # Always notify for subscriptions in this flow
         details = {"text": analysis.get("notification_text", "Subscription processed."), "analysis": analysis, "transaction_id": current_tx_id}
         print(f"Subscription Analysis Result: {json.dumps(analysis, indent=2)}")
         return action, details
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        print(f"Error parsing LLM response for subscription {current_tx_id}: {e}")
+    except Exception as e:
+        print(f"Unexpected error processing LLM subscription response {current_tx_id}: {e}")
         print(f"Raw LLM Response:\n{response_text}")
-        return "error", {"message": f"Failed to parse LLM subscription analysis: {e}", "transaction_id": current_tx_id}
+        return "error", {"message": f"Unexpected error processing LLM subscription analysis: {e}", "transaction_id": current_tx_id}
 
 
 # --- Agent 2: Online Purchase Analyzer ---
@@ -405,15 +455,16 @@ You are an AI financial assistant analyzing online spending patterns and detecti
 ```json
 {historical_transactions_json}
 ```
+**Important Note:** In the transaction details, a negative `amount` value indicates money paid out by the user (a purchase/payment), while a positive `amount` value indicates money received by the user (e.g., a refund).
 
 Instructions:
 
-1.  **Categorize Purchase:** Determine the spending category for the Current Online Purchase Transaction (e.g., "Food Delivery", "Online Clothing Shopping", "Electronics", "Software/Apps", "Travel Booking", "Other").
+1.  **Categorize Purchase:** Determine the spending category for the Current Online Purchase Transaction (e.g., "Food Delivery", "Online Clothing Shopping", "Electronics", "Software/Apps", "Travel Booking", "Other"). Assume it's a payment unless the amount is positive (indicating a potential refund).
 2.  **Analyze Spending Pattern for Wisdom:**
-    *   Filter the Relevant Transaction History to find other transactions likely in the **same category**.
+    *   Filter the Relevant Transaction History to find other transactions likely in the **same category** (mostly payments/negative amounts).
     *   Analyze the typical spending amount, frequency, and **timing** (e.g., day of week/month) within this category based on the history. Provide a brief summary in `typical_spending_info`.
     *   Compare the Current Online Purchase Transaction to this pattern. Set `is_deviation` (boolean) and provide a `deviation_reason` (string or null) if it deviates significantly (e.g., "Amount much higher than usual for [Category]", "Purchase timing unusual based on history for [Category]"). The goal is to highlight potentially unwise spending relative to established habits.
-3.  **Detect Highly Suspicious Outliers:** Independently, assess if the Current Online Purchase Transaction amount/context is extremely anomalous and potentially fraudulent (e.g., a 5-figure sum for 'Online Game Store'). Set `is_highly_suspicious_outlier` (boolean).
+3.  **Detect Highly Suspicious Outliers:** Independently, assess if the Current Online Purchase Transaction amount/context is extremely anomalous and potentially fraudulent (e.g., a 5-figure sum for 'Online Game Store'). Consider if the amount is positive when it should be negative. Set `is_highly_suspicious_outlier` (boolean).
 4.  **Determine Action and Generate Notification:**
     *   If `is_highly_suspicious_outlier` is true: Set `action_suggestion` to "Flag for Block". Generate concise `notification_text` explaining why (e.g., "Security Alert: Unusually large online purchase of [Amount] at [Merchant] detected. Review immediately.").
     *   Else if `is_deviation` is true: Set `action_suggestion` to "Notify". Generate `notification_text` offering insight into the spending pattern deviation (e.g., "Spending Insight: This purchase of €[Amount] for [Category] differs from your usual pattern (Reason: [Deviation Reason]).").
@@ -442,31 +493,40 @@ Output Format (JSON):
         return "error", {"message": "Failed to get LLM online purchase analysis.", "transaction_id": current_tx_id}
 
     try:
-        cleaned_response_text = response_text.strip().strip("`json\n").strip("\n```")
-        analysis = json.loads(cleaned_response_text)
+        # Use the new extraction function
+        analysis = extract_json_from_response(response_text)
+
+        if analysis is None:
+             print(f"Failed to extract valid JSON from LLM response for online purchase {current_tx_id}.")
+             print(f"Raw LLM Response:\n{response_text}")
+             return "error", {"message": "Failed to parse LLM online purchase analysis.", "transaction_id": current_tx_id}
 
         # Basic validation
         required_keys = ["purchase_category", "pattern_analysis", "is_highly_suspicious_outlier", "action_suggestion", "notification_text"]
         if not all(k in analysis for k in required_keys) or not isinstance(analysis.get("pattern_analysis"), dict):
-             raise ValueError("LLM response missing required keys for online purchase analysis.")
-        if analysis.get("action_suggestion") not in ["Flag for Block", "Notify", "None"]:
-             raise ValueError("Invalid action_suggestion value in online purchase analysis.")
+             print(f"LLM JSON response missing required keys for online purchase {current_tx_id}.")
+             print(f"Invalid analysis object: {analysis}")
+             return "error", {"message": "LLM response missing required keys for online purchase analysis.", "transaction_id": current_tx_id}
+        action_suggestion = analysis.get("action_suggestion")
+        if action_suggestion not in ["Flag for Block", "Notify", "None"]:
+             print(f"LLM JSON response has invalid action_suggestion '{action_suggestion}' for online purchase {current_tx_id}.")
+             action_suggestion = "None"
+             analysis['parsing_warning'] = f"Invalid action_suggestion '{analysis.get('action_suggestion')}' received, defaulted to None."
 
-        suggested_action = analysis.get("action_suggestion")
         action = "none" # Default action
-        if suggested_action == "Flag for Block":
+        if action_suggestion == "Flag for Block":
             action = "suggest_block" # Map LLM suggestion to our internal action name
-        elif suggested_action == "Notify":
+        elif action_suggestion == "Notify":
             action = "notify"
 
         details = {"text": analysis.get("notification_text"), "analysis": analysis, "transaction_id": current_tx_id}
         print(f"Online Purchase Analysis Result: {json.dumps(analysis, indent=2)}")
         return action, details
 
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        print(f"Error parsing LLM response for online purchase {current_tx_id}: {e}")
+    except Exception as e:
+        print(f"Unexpected error processing LLM online purchase response {current_tx_id}: {e}")
         print(f"Raw LLM Response:\n{response_text}")
-        return "error", {"message": f"Failed to parse LLM online purchase analysis: {e}", "transaction_id": current_tx_id}
+        return "error", {"message": f"Unexpected error processing LLM online purchase analysis: {e}", "transaction_id": current_tx_id}
 
 # --- Agent 3: Offline Purchase Analyzer ---
 def analyze_offline_purchase(current_transaction, historical_transactions, time_frame_months=3):
@@ -503,12 +563,13 @@ You are an AI financial assistant analyzing offline spending patterns. You have 
 ```json
 {historical_transactions_json}
 ```
+**Important Note:** In the transaction details, a negative `amount` value indicates money paid out by the user (a purchase/payment), while a positive `amount` value indicates money received by the user (e.g., a refund at a physical store).
 
 Instructions:
 
-1.  **Categorize Purchase:** Determine the spending category (e.g., "Groceries", "Dining Out", "Transportation", "Shopping", "Entertainment", "Other").
+1.  **Categorize Purchase:** Determine the spending category (e.g., "Groceries", "Dining Out", "Transportation", "Shopping", "Entertainment", "Other"). Assume it's a payment unless the amount is positive (indicating a potential refund).
 2.  **Analyze Spending Pattern for Awareness:**
-    *   Filter history for the same category.
+    *   Filter history for the same category (mostly payments/negative amounts).
     *   Analyze typical amount, frequency, **timing**. Summarize in `typical_spending_info`.
     *   Compare current transaction. Set `is_deviation` (boolean) and `deviation_reason` (string or null) if it deviates significantly (e.g., "Amount higher than typical grocery spend", "Dining out amount unusual for a weekday based on history").
 3.  **Note Notable Outliers:** Assess if the amount/context is notably large/unusual for the category/merchant, even if not a pattern deviation. Set `is_notable_outlier` (boolean).
@@ -540,38 +601,44 @@ Output Format (JSON):
         return "error", {"message": "Failed to get LLM offline purchase analysis.", "transaction_id": current_tx_id}
 
     try:
-        cleaned_response_text = response_text.strip().strip("`json\n").strip("\n```")
-        analysis = json.loads(cleaned_response_text)
+        # Use the new extraction function
+        analysis = extract_json_from_response(response_text)
+
+        if analysis is None:
+             print(f"Failed to extract valid JSON from LLM response for offline purchase {current_tx_id}.")
+             print(f"Raw LLM Response:\n{response_text}")
+             return "error", {"message": "Failed to parse LLM offline purchase analysis.", "transaction_id": current_tx_id}
 
         # Basic validation
         required_keys = ["purchase_category", "pattern_analysis", "is_notable_outlier", "action_suggestion", "notification_text"]
         if not all(k in analysis for k in required_keys) or not isinstance(analysis.get("pattern_analysis"), dict):
-             raise ValueError("LLM response missing required keys for offline purchase analysis.")
-        # Enforce constraint
-        if analysis.get("action_suggestion") not in ["Notify", "None"]:
-             print(f"Warning: LLM suggested invalid action '{analysis.get('action_suggestion')}' for offline purchase. Forcing to 'Notify'.")
-             analysis["action_suggestion"] = "Notify" # Force to Notify if invalid, or could force to None
+             print(f"LLM JSON response missing required keys for offline purchase {current_tx_id}.")
+             print(f"Invalid analysis object: {analysis}")
+             return "error", {"message": "LLM response missing required keys for offline purchase analysis.", "transaction_id": current_tx_id}
 
-        suggested_action = analysis.get("action_suggestion")
+        # Enforce constraint
+        action_suggestion = analysis.get("action_suggestion")
+        if action_suggestion not in ["Notify", "None"]:
+             print(f"Warning: LLM suggested invalid action '{action_suggestion}' for offline purchase {current_tx_id}. Forcing to 'Notify'.")
+             action_suggestion = "Notify" # Force to Notify if invalid
+             analysis['parsing_warning'] = f"Invalid action_suggestion '{analysis.get('action_suggestion')}' received, forced to Notify."
+
+
         action = "none" # Default action
-        if suggested_action == "Notify":
+        if action_suggestion == "Notify":
             action = "notify"
 
         details = {"text": analysis.get("notification_text"), "analysis": analysis, "transaction_id": current_tx_id}
         print(f"Offline Purchase Analysis Result: {json.dumps(analysis, indent=2)}")
         return action, details
 
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
-        print(f"Error parsing LLM response for offline purchase {current_tx_id}: {e}")
+    except Exception as e:
+        print(f"Unexpected error processing LLM offline purchase response {current_tx_id}: {e}")
         print(f"Raw LLM Response:\n{response_text}")
-        return "error", {"message": f"Failed to parse LLM offline purchase analysis: {e}", "transaction_id": current_tx_id}
+        return "error", {"message": f"Unexpected error processing LLM offline purchase analysis: {e}", "transaction_id": current_tx_id}
 
 # --- Agent 4: Saving Recommendations (Placeholder) ---
 def generate_saving_recommendations(transactions):
      """(Placeholder) Analyzes transactions to generate saving recommendations."""
      print("\n--- Generating Saving Recommendations (Placeholder) ---")
-     # TODO: Implement Agent 4 logic
      return "none", {"message": "Savings recommendation agent not implemented yet."}
-
-# --- Deprecated/Removed ---
-# (Old analyze_purchase and analyze_subscriptions logic can be removed if fully replaced) 

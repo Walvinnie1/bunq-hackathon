@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1>Recent Transactions & Analysis</h1>
+    {% if transactions %}
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Amount</th>
+                    <th>Currency</th>
+                    <th>Counterparty</th>
+                    <th>Type</th>
+                    <th>Sub Type</th>
+                    <th>Classification</th> <!-- New Column -->
+                    <th>Analysis/Notification</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tx in transactions %}
+                    <!-- Optionally add styling based on analysis_action -->
+                    <tr class="{{ 'analysis-notify' if tx.analysis_action == 'notify' else '' }} {{ 'analysis-block-suggestion' if tx.analysis_action == 'suggest_block' else '' }}">
+                        <td>{{ tx.id }}</td>
+                        <td>{{ tx.created }}</td>
+                        <td>{{ tx.description }}</td>
+                        <td>{{ tx.amount }}</td>
+                        <td>{{ tx.currency }}</td>
+                        <td>{{ tx.counterparty }}</td>
+                        <td>{{ tx.type }}</td>
+                        <td>{{ tx.sub_type }}</td>
+                        <td>{{ tx.classification }}</td> <!-- Display Classification -->
+                        <td>
+                            {% if tx.analysis_text %}
+                                {{ tx.analysis_text }}
+                            {% elif tx.analysis_action == 'error' %}
+                                <span class="error">Analysis Error</span>
+                            {% else %}
+                                <!-- No analysis message or action was 'none' -->
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No transactions found or unable to load.</p>
+    {% endif %}
+{% endblock %}
