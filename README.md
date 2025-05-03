@@ -1,33 +1,54 @@
 # Bunq AI Agent
 
-This project analyzes bunq bank transactions using AI (specifically, large language models) to provide insights, detect potential issues like unwanted subscriptions or suspicious activity, and potentially offer saving recommendations (future feature).
+This project utilizes AI agents, powered by large language models (LLMs), to analyze your bunq bank transactions. It aims to provide insights, detect potential issues like redundant subscriptions or anomalous spending patterns, and suggest appropriate actions.
 
-## Features (Current & Planned)
+## Core Features
 
-*   **Transaction Fetching:** Connects to the bunq API (Sandbox or Production) to retrieve recent transactions.
-*   **Subscription Analysis:** Identifies recurring payments that might be subscriptions using an LLM.
-*   **Suspicious Activity Detection:** Analyzes individual transactions for characteristics that might indicate fraud or error, using an LLM.
-*   **Notification System:** Logs findings and potential issues (currently prints to console and logs to `bunq_ai_agent/agent_actions.log`).
-*   **(Planned)** Saving Recommendations: Analyze spending patterns to suggest saving opportunities.
+*   **Transaction Classification (Agent 0):** Automatically categorizes incoming transactions into types like `Subscription`, `Online Purchase`, or `Offline Purchase`.
+*   **Subscription Analysis (Agent 1):**
+    *   Identifies the specific service for subscription transactions.
+    *   Scans recent history for similar/redundant subscriptions in the same category (e.g., multiple video streaming services).
+    *   Generates notifications suggesting potential cancellations or acknowledgments.
+*   **Online Purchase Analysis (Agent 2):**
+    *   Categorizes online purchases (e.g., Food Delivery, Shopping).
+    *   Analyzes spending patterns (amount, frequency, timing) within categories based on historical data.
+    *   Detects significant deviations from typical spending habits.
+    *   Flags highly suspicious outliers (e.g., unusually large amounts) suggesting review or potential blocking.
+*   **Offline Purchase Analysis (Agent 3):**
+    *   Categorizes offline (physical card/phone) purchases.
+    *   Analyzes spending patterns for awareness.
+    *   Notes significant deviations or notably large transactions.
+    *   Generates awareness notifications (does **not** suggest blocking).
+*   **(Placeholder) Saving Recommendations (Agent 4):** A planned agent to generate saving suggestions based on spending analysis.
+*   **LLM Integration:** Leverages external LLMs (configurable via `llm_client.py`) for the core analysis tasks.
+*   **Bunq Integration:** Securely connects to the bunq API (Sandbox or Production) using the bunq SDK (via `bunq_client.py`).
+*   **Action Logging:** Records agent findings and suggestions in `agent_actions.log`.
+
+## How it Works (High-Level)
+
+1.  **Fetch:** The `main.py` script initiates the `bunq_client.py` to retrieve recent transactions from the bunq API.
+2.  **Classify:** Each new transaction is passed to Agent 0 (`classify_transaction` in `agents.py`) for initial categorization.
+3.  **Route & Analyze:** Based on the classification, the transaction (along with relevant historical data) is routed to the corresponding specialized agent (Agent 1, 2, or 3 in `agents.py`).
+4.  **LLM Prompting:** The specialized agent constructs a detailed prompt including the transaction details and historical context, then sends it to the LLM via `llm_client.py`.
+5.  **Parse & Act:** The agent parses the structured JSON response from the LLM. Based on the analysis results (e.g., `suspicious`, `is_deviation`, `suggest_block`), it determines an action (`notify`, `suggest_block`, `none`).
+6.  **Log:** The action and supporting details are logged using functions in `actions.py` to the console and `agent_actions.log`.
 
 ## Project Structure
 
 ```
 .
-├── bunq_ai_agent/        # Main application code
-│   ├── main.py           # Main script orchestrating the process
-│   ├── agents.py         # Contains different analysis agents (LLM logic)
-│   ├── llm_client.py     # Handles interaction with the LLM API (e.g., OpenAI)
-│   ├── bunq_client.py    # Handles interaction with the bunq API
-│   ├── actions.py        # Handles logging and notification actions
-│   ├── agent_actions.log # Log file for agent findings
-│   └── ...               # Other supporting files/folders (__pycache__, venv)
-├── bunq.conf             # Configuration file for the bunq API context
-├── init.py               # Script to initialize the bunq API context (run once or if config changes)
-├── .env                  # Environment variables (API Keys, etc. - **DO NOT COMMIT**)
-├── .gitignore            # Specifies intentionally untracked files
-├── LICENSE               # Project license
-└── README.md             # This file
+├── agents.py         # Core logic for different analysis agents (LLM prompts)
+├── llm_client.py     # Handles interaction with the LLM API (e.g., OpenAI)
+├── bunq_client.py    # Handles interaction with the bunq API
+├── main.py           # Main script orchestrating fetching, classification, and analysis
+├── actions.py        # Handles logging and notification actions
+├── agent_actions.log # Log file for agent findings and suggestions
+├── bunq.conf         # Configuration file for the bunq API context (generated)
+├── .env              # Environment variables (API Keys, etc. - **DO NOT COMMIT**)
+├── .gitignore        # Specifies intentionally untracked files
+├── LICENSE           # Project license
+└── README.md         # This file
+# Optional: venv/      # Python virtual environment directory
 ```
 
 ## Setup
@@ -40,65 +61,67 @@ This project analyzes bunq bank transactions using AI (specifically, large langu
 
 2.  **Create a virtual environment:**
     ```bash
-    python -m venv bunq_ai_agent/venv
-    source bunq_ai_agent/venv/bin/activate  # On Windows use `bunq_ai_agent\venv\Scripts\activate`
+    python3 -m venv venv  # Use python3 or python depending on your system
+    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
     ```
 
 3.  **Install dependencies:**
-    *(Note: A `requirements.txt` file is not currently present. You'll need to install the required packages manually. Based on the imports, you likely need:*
+    *(Note: A `requirements.txt` file is not currently present. You'll need to install the required packages manually. Based on the imports, you likely need:)*
     ```bash
     pip install bunq-sdk python-dotenv openai # Add any other specific libraries used
     ```
-    *(It's recommended to create a `requirements.txt` file)*
+    **(Highly Recommended):** Create and maintain a `requirements.txt` file for easier dependency management:
+    ```bash
+    pip freeze > requirements.txt
+    # Then install using: pip install -r requirements.txt
+    ```
 
 4.  **Configure bunq API:**
-    *   Obtain your bunq API key (Sandbox or Production).
-    *   Edit the `init.py` script, replacing the placeholder `API_KEY` and `DEVICE_DESCRIPTION` with your actual key and a description for this API access.
-    *   Run the initialization script **once** to create the `bunq.conf` file:
-        ```bash
-        python init.py
-        ```
-        This will save your API context. You should not need to run this again unless your API key changes or the `bunq.conf` file is lost. **Important:** Ensure `bunq.conf` is added to your `.gitignore` if you are using a Production key to avoid committing sensitive information.
+    *   You need a bunq API key (Sandbox recommended for testing).
+    *   **Important:** The `init.py` script mentioned in the previous README version seems to be missing. You will need to adapt `bunq_client.py` or create a setup script to handle the initial API context creation and saving it to `bunq.conf`. This typically involves providing your API key and device description to the bunq SDK.
+    *   **Security:** Ensure `bunq.conf` is added to your `.gitignore`, especially if using a Production key.
 
 5.  **Configure LLM API:**
     *   Create a `.env` file in the root directory.
-    *   Add your LLM provider's API key (e.g., OpenAI):
+    *   Add your LLM provider's API key (the current `llm_client.py` appears set up for OpenAI):
         ```dotenv
         # .env
         OPENAI_API_KEY='your_openai_api_key_here'
         # Add other necessary environment variables if required by llm_client.py
         ```
-    *   Ensure `.env` is listed in your `.gitignore` file.
+    *   Ensure `.env` is listed in your `.gitignore` file to prevent committing secrets.
 
 ## Usage
 
-To run the analysis once, execute the main script from the root directory:
+Execute the main script from the root directory:
 
 ```bash
-python bunq_ai_agent/main.py
+python main.py
 ```
 
 The script will:
 1.  Load environment variables (from `.env`).
-2.  Initialize the bunq context (using `bunq.conf`).
-3.  Fetch recent transactions (default lookback is 7 days, configurable in `main.py`).
-4.  Analyze transactions using the defined agents (`agents.py`).
-5.  Print notifications and log suggestions/errors to the console and `bunq_ai_agent/agent_actions.log`.
+2.  Initialize the bunq client (using `bunq.conf` if configured correctly).
+3.  Fetch recent transactions (lookback period configurable in `main.py`).
+4.  Process transactions through the agent pipeline (classify -> analyze).
+5.  Print notifications and log suggestions/errors to the console and `agent_actions.log`.
 
 ### Periodic Execution (Optional)
 
-The `main.py` script contains commented-out code for running the analysis periodically. You can uncomment and modify the `check_interval_seconds` and `lookback_interval_days` variables to run the script automatically in a loop.
+The `main.py` script likely contains logic (possibly commented out) for running the analysis periodically. Check the script for variables like `check_interval_seconds` or similar to enable and configure automated looping.
 
 ## Configuration
 
-*   **bunq API:** `init.py` (for initial setup), `bunq.conf` (stores context).
-*   **LLM API:** `.env` file (for API keys).
-*   **Analysis Behavior:** Modify parameters within `bunq_ai_agent/main.py` (e.g., `lookback_days`) and potentially within the agent functions in `bunq_ai_agent/agents.py` or prompts in `bunq_ai_agent/llm_client.py`.
+*   **bunq API Context:** Managed via `bunq_client.py` and stored in `bunq.conf`. Setup process needs verification (see Setup step 4).
+*   **LLM API Key:** `.env` file.
+*   **LLM Interaction:** Modify `llm_client.py` to change models, providers, or base prompt instructions.
+*   **Agent Logic & Prompts:** Adjust the specific prompts and analysis logic within the agent functions in `agents.py`.
+*   **Execution Parameters:** Modify settings in `main.py` (e.g., transaction lookback period, run interval).
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit pull requests or open issues.
+Contributions are welcome! Please feel free to submit pull requests or open issues for bugs, feature requests, or improvements.
 
 ## License
 
-[Specify License Type - e.g., MIT License] (See LICENSE file)
+[MIT License] (See LICENSE file)
